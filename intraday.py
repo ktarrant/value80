@@ -1,34 +1,77 @@
 import datetime
 import pandas as pd
-from collections import OrderedDict
-
-from backtrader import Strategy
 from backtrader.indicator import Indicator
-from backtrader.sizer import Sizer
+from backtrader import Strategy
 
 from pandas_market_calendars import get_calendar
 
-class IntradayTimerStrategy(Strategy):
+class StandardIntradayStrategy(Strategy):
+    """ automatically closes all positions at end of day """
     params = (
-        ('open_wait_mins', 50),  # anticipate 10:30 boys
-        ('close_early_mins', 30),  # get out before 3:45 to 4:00 madness starts
+        ('open_offset', 30),
+        ('close_offset', 30),
     )
 
     def __init__(self):
-        self.open_timer = self.add_timer(when=datetime.time(9,30),
-                       offset=datetime.timedelta(minutes=self.params.open_wait_mins))
-        self.close_timer = self.add_timer(when=datetime.time(16,00),
-                       offset=datetime.timedelta(minutes=-self.params.close_early_mins))
-        self.market_open = False
+        self.openTimer = OutputEventTimer(offset=self.p.open_offset)
+        self.openTimer.plotinfo.plot = False
+        self.closeTimer = OutputEventTimer(base='close', offset=-self.p.close_offset)
+        self.closeTimer.plotinfo.plot = False
 
-    def notify_timer(self, timer, when, *args, **kwargs):
-        if timer == self.open_timer:
-            print("handle open: {}".format(when))
-            self.market_open = True
+    def tobps(self, value):
+        return value / self.data0.close * 10000
 
-        elif timer == self.close_timer:
-            print("handle close: {}".format(when))
-            self.market_open = False
+    def nextstart(self):
+        self.order = None
+        self.next()
+
+    def next(self):
+        if self.order:
+            # Already have pending order
+            return
+
+        self.compute_factors()
+
+        if self.openTimer.lines.event[0]:
+            self.handle_open()
+
+        if not self.position:
+
+            if self.openTimer.lines.phase[0] and not self.closeTimer.lines.phase[0]:
+
+                if self.check_for_entry():
+                    self.order = self.buy()
+        else:
+
+            if self.closeTimer.lines.event[0]:
+                self.order = self.close()
+
+            elif self.check_for_stop():
+                self.order = self.close()
+
+    def notify_order(self, order):
+        if order.status in [order.Submitted, order.Accepted]:
+            # Buy/Sell order submitted/accepted to/by broker - Nothing to do
+            return
+
+        # The order was either completed or failed in some way
+        self.order = None
+
+    def handle_open(self):
+        """ Called when the market is open """
+        pass
+
+    def compute_factors(self):
+        """ Method for calculating intermediate factors """
+        pass
+
+    def check_for_entry(self):
+        """ True if entry signal is triggered, else False """
+        return False
+
+    def check_for_stop(self):
+        """ True if exit signal is triggered, else False """
+        return False
 
 class MarketOpenTimer(Indicator):
     lines = ('open', 'close')
