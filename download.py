@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from queue import Queue, Empty
 import logging
+import datetime
 
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
@@ -144,5 +145,6 @@ if __name__ == "__main__":
 
     import pandas as pd
     df = pd.DataFrame(app.yieldAllBars())
+    df = df.set_index("datetime")
     print(df)
     df.to_csv("{}.csv".format(args.symbol))

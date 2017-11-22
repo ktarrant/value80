@@ -1,7 +1,9 @@
-from backtrader import Cerebro
-from backtrader.sizers import PercentSizer
+import backtrader as bt
+import pandas as pd
+import datetime
 
 from intraday import StandardIntradayStrategy
+
 
 class BuyTheOpenStrategy(StandardIntradayStrategy):
 
@@ -17,18 +19,21 @@ class BuyTheOpenStrategy(StandardIntradayStrategy):
 
 def main():
     # Create a cerebro entity
-    cerebro = Cerebro( )
+    cerebro = bt.Cerebro( )
 
     # Set our desired cash start
     cerebro.broker.setcash(100000.0)
 
     # Set our sizer
-    cerebro.addsizer(PercentSizer, percents=90)
+    cerebro.addsizer(bt.sizers.PercentSizer, percents=90)
     # cerebro.addsizer(MrTimerSizer)
 
     # Load our data, create and add the datafeed
-    # TODO: Load IB intraday data
-
+    data = pd.read_csv("ES.csv")
+    data["datetime"] = pd.to_datetime(data["datetime"])
+    data = data.set_index("datetime")
+    feed = bt.feeds.PandasData(dataname=data)
+    cerebro.adddata(feed)
 
     # Add the strategies to run
     cerebro.addstrategy(BuyTheOpenStrategy)
@@ -39,4 +44,4 @@ def main():
     cerebro.plot()
 
 if __name__ == "__main__":
-    pass
+    main()
