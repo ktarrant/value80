@@ -53,17 +53,17 @@ class ValueAreaManager(object):
     def update_entry_order(self):
         if self.orderClient:
             if self.state == "value_buy":
-                target = self.VAL
-                if np.isnan(target):
+                self._cur_target = self.VAL
+                if np.isnan(self._cur_target):
                     log.error("Buy entry order requested with NaN VAL")
                 else:
-                    self.orderClient.update_entry_order("buy", target)
+                    self.orderClient.update_entry_order("buy", self._cur_target)
             elif self.state == "value_sell":
-                target = self.VAH
-                if np.isnan(target):
+                self._cur_target = self.VAH
+                if np.isnan(self._cur_target):
                     log.error("Sell entry order requested with NaN VAH")
                 else:
-                    self.orderClient.update_entry_order("sell", target)
+                    self.orderClient.update_entry_order("sell", self._cur_target)
             else:
                 log.error("Entry requested during invalid state: {}".format(self.state))
         else:
@@ -78,24 +78,24 @@ class ValueAreaManager(object):
     def update_closing_orders(self):
         if self.orderClient:
             if self.state == "value_buy_hold":
-                target = self.VAH
-                stop = self.VAL * 0.99 # TODO: MAKE THE STOP CONFIGURABLE SOMEHOW
+                self._cur_target = self.VAH
+                self._cur_stop = self.VAL * 0.99 # TODO: MAKE THE STOP CONFIGURABLE SOMEHOW
 
-                if np.isnan(target) or np.isnan(stop):
+                if np.isnan(self._cur_target) or np.isnan(self._cur_stop):
                     raise ValueError("Buy closing order requested with NaN VAL or VAH")
 
-                self.orderClient.update_exit_limit("sell", target)
-                self.orderClient.update_exit_stop("sell", stop)
+                self.orderClient.update_exit_limit("sell", self._cur_target)
+                self.orderClient.update_exit_stop("sell", self._cur_stop)
 
             elif self.state == "value_sell_hold":
-                target = self.VAL
-                stop = self.VAH * 1.01 # TODO: MAKE THE STOP CONFIGURABLE SOMEHOW
+                self._cur_target = self.VAL
+                self._cur_stop = self.VAH * 1.01 # TODO: MAKE THE STOP CONFIGURABLE SOMEHOW
 
-                if np.isnan(target) or np.isnan(stop):
+                if np.isnan(self._cur_target) or np.isnan(self._cur_stop):
                     raise ValueError("Sell closing order requested with NaN VAL or VAH")
 
-                self.orderClient.update_exit_limit("buy", target)
-                self.orderClient.update_exit_stop("buy", stop)
+                self.orderClient.update_exit_limit("buy", self._cur_target)
+                self.orderClient.update_exit_stop("buy", self._cur_stop)
 
             else:
                 log.error("Exit requested during invalid state: {}".format(self.state))
@@ -103,11 +103,18 @@ class ValueAreaManager(object):
         else:
             log.error("update_closing_orders called without orderClient")
 
-    def cancel_closing_orders(self):
+    def cancel_exit_orders(self):
         if self.orderClient:
-            self.orderClient.cancel_closing_orders()
+            self.orderClient.cancel_exit_orders()
         else:
-            log.error("cancel_closing_orders called without orderClient")
+            log.error("cancel_exit_orders called without orderClient")
+
+    def handleNext(self, VAL, VAH, candle_open, candle_close):
+        self.VAL = VAL
+        self.VAH = VAH
+        self.candle_open = candle_open
+        self.candle_close = candle_close
+        self.next()
 
     def __init__(self, orderClient=None):
         self.orderClient = orderClient
@@ -176,27 +183,35 @@ class ValueAreaManager(object):
         # Position management
         self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_above",
                                     conditions=["is_candle_close_above_VAH"],
-                                    before="cancel_closing_orders")
+                                    before="cancel_exit_orders")
         self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_inside",
                                     conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
-                                    before="cancel_closing_orders")
+                                    before="cancel_exit_orders")
         self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_below",
                                     conditions=["is_candle_close_above_VAL"],
-                                    before="cancel_closing_orders")
+                                    before="cancel_exit_orders")
         self.machine.add_transition(source="value_buy_hold", trigger="order_cancelled", dest="value_buy_hold")
 
         self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_above",
                                     conditions=["is_candle_close_above_VAH"],
-                                    before="cancel_closing_orders")
+                                    before="cancel_exit_orders")
         self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_inside",
                                     conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
-                                    before="cancel_closing_orders")
+                                    before="cancel_exit_orders")
         self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_below",
                                     conditions=["is_candle_close_above_VAL"],
-                                    before="cancel_closing_orders")
+                                    before="cancel_exit_orders")
 
         # Initialize state variables
         self.reset()
+
+    @property
+    def current_stop(self):
+        return self._cur_stop
+
+    @property
+    def current_target(self):
+        return self._cur_target
 
     def reset(self):
         self.state = "idle"
@@ -204,30 +219,32 @@ class ValueAreaManager(object):
         self.VAL = np.NaN
         self.candle_open = np.NaN
         self.candle_close = np.NaN
+        self._cur_target = np.NaN
+        self._cur_stop = np.NaN
 
     def is_VA_null(self):
-        return np.isnan(self.VAH) or np.isnan(self.VAL)
+        return (np.isnan(self.VAH) or np.isnan(self.VAL))
 
     def is_candle_close_below_VAL(self):
-        return self.candle_close < self.VAL
+        return (self.candle_close < self.VAL)
 
     def is_candle_close_above_VAL(self):
-        return self.candle_close > self.VAL
+        return (self.candle_close > self.VAL)
 
     def is_candle_close_below_VAH(self):
-        return self.candle_close < self.VAH
+        return (self.candle_close < self.VAH)
 
     def is_candle_close_above_VAH(self):
-        return self.candle_close > self.VAH
+        return (self.candle_close > self.VAH)
 
     def is_candle_open_below_VAL(self):
-        return self.candle_open < self.VAL
+        return (self.candle_open < self.VAL)
 
     def is_candle_open_above_VAL(self):
-        return self.candle_open > self.VAL
+        return (self.candle_open > self.VAL)
 
     def is_candle_open_below_VAH(self):
-        return self.candle_open < self.VAH
+        return (self.candle_open < self.VAH)
 
     def is_candle_open_above_VAH(self):
-        return self.candle_open > self.VAH
+        return (self.candle_open > self.VAH)
