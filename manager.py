@@ -146,16 +146,23 @@ class ValueAreaManager(object):
                                     after="update_entry_order")
 
         # Transitions from stalking
+        # from below VA
         self.machine.add_transition(source="stalking_below", trigger="next", dest="value_buy",
                                     conditions=["is_candle_close_above_VAL", "is_candle_close_below_VAH"],
                                     after="update_entry_order")
         self.machine.add_transition(source="stalking_below", trigger="next", dest="stalking_above",
                                     conditions=["is_candle_close_above_VAH"])
+        # from above VA
         self.machine.add_transition(source="stalking_above", trigger="next", dest="value_sell",
                                     conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
                                     after="update_entry_order")
         self.machine.add_transition(source="stalking_above", trigger="next", dest="stalking_below",
                                     conditions=["is_candle_close_below_VAL"])
+        # from inside VA
+        self.machine.add_transition(source="stalking_inside", trigger="next", dest="stalking_below",
+                                    conditions=["is_candle_close_below_VAL"])
+        self.machine.add_transition(source="stalking_inside", trigger="next", dest="stalking_above",
+                                    conditions=["is_candle_close_above VAH"])
 
         # Value area entry management
         self.machine.add_transition(source="value_buy", trigger="order_filled", dest="value_buy_hold",
@@ -188,9 +195,10 @@ class ValueAreaManager(object):
                                     conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
                                     before="cancel_exit_orders")
         self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_below",
-                                    conditions=["is_candle_close_above_VAL"],
+                                    conditions=["is_candle_close_below_VAL"],
                                     before="cancel_exit_orders")
-        self.machine.add_transition(source="value_buy_hold", trigger="order_cancelled", dest="value_buy_hold")
+        self.machine.add_transition(source="value_buy_hold", trigger="order_cancelled", dest="value_buy_hold",
+                                    after="update_entry_order")
 
         self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_above",
                                     conditions=["is_candle_close_above_VAH"],
@@ -199,8 +207,10 @@ class ValueAreaManager(object):
                                     conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
                                     before="cancel_exit_orders")
         self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_below",
-                                    conditions=["is_candle_close_above_VAL"],
+                                    conditions=["is_candle_close_below_VAL"],
                                     before="cancel_exit_orders")
+        self.machine.add_transition(source="value_sell_hold", trigger="order_cancelled", dest="value_sell_hold",
+                                    after="update_entry_order")
 
         # Initialize state variables
         self.reset()
@@ -229,10 +239,10 @@ class ValueAreaManager(object):
         return (self.candle_close < self.VAL)
 
     def is_candle_close_above_VAL(self):
-        return (self.candle_close > self.VAL)
+        return (self.candle_close >= self.VAL)
 
     def is_candle_close_below_VAH(self):
-        return (self.candle_close < self.VAH)
+        return (self.candle_close <= self.VAH)
 
     def is_candle_close_above_VAH(self):
         return (self.candle_close > self.VAH)
@@ -241,10 +251,10 @@ class ValueAreaManager(object):
         return (self.candle_open < self.VAL)
 
     def is_candle_open_above_VAL(self):
-        return (self.candle_open > self.VAL)
+        return (self.candle_open >= self.VAL)
 
     def is_candle_open_below_VAH(self):
-        return (self.candle_open < self.VAH)
+        return (self.candle_open <= self.VAH)
 
     def is_candle_open_above_VAH(self):
         return (self.candle_open > self.VAH)
