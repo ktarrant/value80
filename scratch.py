@@ -1,8 +1,11 @@
 import datetime
+import logging
 from collections import OrderedDict
 
 import backtrader as bt
 from intraday import StandardIntradayStrategy
+
+log = logging.getLogger(__name__)
 
 class BuyTheOpenStrategy(StandardIntradayStrategy):
 
@@ -38,28 +41,34 @@ def get_data(ibstore):
         historical = True, # Set to False to do live trading
         fromdate = datetime.datetime(year=2017, month=1, day=1),
         backfill_start = True, # backfill data at the maximum possible duration at start
-        backfill = True, # backfill missing data on a reconnection
+        backfill = False, # backfill missing data on a reconnection
     )
 
     contract_args = OrderedDict([
         ("symbol", "ES"),
         ("secType", "FUT"),
-        ("exchange", "USD"),
-        ("expiry", "201712"),
+        ("exchange", "GLOBEX"),
+        ("expiry_year", 2018),
+        ("expiry_month", 3),
     ])
+    # CONTRACT FORMAT
+    # TICKER-YYYYMM-EXCHANGE  # Future
+    data_args["dataname"] = "{symbol}-{expiry_year}{expiry_month:02d}-{exchange}".format(**contract_args)
+
+    log.info("dataname: {}".format(data_args["dataname"]))
+    data = ibstore.getdata(**data_args)
+    return data
+
+def old_connect():
+    pass
     # con = ibConnection(host='127.0.0.1', port=7496, clientId=721)
     # con.register(historical_data_handler, message.historicalData)
     # con.connect( )
     # contract = Contract(**contract_args)
     # con.reqHistoricalData(0, contract, '', '3 W', '1 hour', 'TRADES', 1, 2)
 
-    data_args["dataname"] = "-".join(contract_args.values())
-    print("dataname: {}".format(data_args["dataname"]))
-    data = ibstore.getdata(**data_args)
-    return data
-
 def main():
-    print("Connecting to store.")
+    log.debug("Connecting to store.")
     # Connect to Interactive Brokers
     ibstore = get_ib_store()
 
@@ -74,7 +83,7 @@ def main():
     # cerebro.addsizer(MrTimerSizer)
 
     # Load our data, create and add the datafeed
-    print("Getting data")
+    log.debug("Getting data")
     data = get_data(ibstore)
     cerebro.adddata(data)
 
@@ -83,12 +92,13 @@ def main():
     # cerebro.addstrategy(BuyTheOpenStrategy)
 
     # Run the backtest
-    print("Running backtest")
+    log.debug("Running backtest")
     result = cerebro.run()
 
     # Plot the result
-    print("Printing backtest")
+    log.debug("Printing backtest")
     cerebro.plot()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     main()
