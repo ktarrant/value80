@@ -108,7 +108,7 @@ class ValueAreaStrategy(bt.Strategy):
 
 def main():
     # Create a cerebro entity
-    cerebro = bt.Cerebro( )
+    cerebro = bt.Cerebro()
 
     # Set our desired cash start
     cerebro.broker.setcash(100000.0)

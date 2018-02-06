@@ -122,94 +122,110 @@ class ValueAreaManager(object):
         # Build the state machine
         self.machine = Machine(model=self, states=ValueAreaManager.states, initial="idle")
 
-        # From any state, if we don't have Value Area data then close out everything and go all cash
-        self.machine.add_transition(source="*", trigger="next", dest="idle",
+        # ----- trigger: next -----
+        # from any candle - if we don't have VA data then stay flat
+        self.machine.add_transition("next", "*", "idle",
                                     conditions=["is_VA_null"],
-                                    before="close_all_positions_and_orders",
-                                    )
+                                    before="close_all_positions_and_orders")
 
-        # Transitions from idle
-        self.machine.add_transition(source="idle", trigger="next", dest="stalking_below",
+        # from idle
+        self.machine.add_transition("next", "idle", "stalking_below",
                                     conditions=["is_candle_close_below_VAL"])
-        self.machine.add_transition(source="idle", trigger="next", dest="stalking_above",
+        self.machine.add_transition("next", "idle", "stalking_above",
                                     conditions=["is_candle_close_above_VAH"])
-        self.machine.add_transition(source="idle", trigger="next", dest="stalking_inside",
+        self.machine.add_transition("next", "idle", "stalking_inside",
                                     conditions=[
                                         "is_candle_close_below_VAH", "is_candle_open_below_VAH",
                                         "is_candle_close_above_VAL", "is_candle_open_above_VAL",
                                     ])
-        self.machine.add_transition(source="idle", trigger="next", dest="value_buy",
+        self.machine.add_transition("next", "idle", "value_buy",
                                     conditions=["is_candle_close_above_VAL", "is_candle_open_below_VAL"],
                                     after="update_entry_order")
-        self.machine.add_transition(source="idle", trigger="next", dest="value_sell",
+        self.machine.add_transition("next", "idle", "value_sell",
                                     conditions=["is_candle_close_below_VAH", "is_candle_open_above_VAH"],
                                     after="update_entry_order")
 
-        # Transitions from stalking
-        # from below VA
-        self.machine.add_transition(source="stalking_below", trigger="next", dest="value_buy",
+        # from stalking_below
+        self.machine.add_transition("next", "stalking_below", "value_buy",
                                     conditions=["is_candle_close_above_VAL", "is_candle_close_below_VAH"],
                                     after="update_entry_order")
-        self.machine.add_transition(source="stalking_below", trigger="next", dest="stalking_above",
+        self.machine.add_transition("next", "stalking_below", "stalking_above",
                                     conditions=["is_candle_close_above_VAH"])
-        # from above VA
-        self.machine.add_transition(source="stalking_above", trigger="next", dest="value_sell",
-                                    conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
+
+        # from stalking_above
+        self.machine.add_transition("next", "stalking_above", "value_sell",
+                                    conditions=["is_candle_close_above_VAL", "is_candle_close_below_VAH"],
                                     after="update_entry_order")
-        self.machine.add_transition(source="stalking_above", trigger="next", dest="stalking_below",
+        self.machine.add_transition("next", "stalking_above", "stalking_below",
                                     conditions=["is_candle_close_below_VAL"])
-        # from inside VA
-        self.machine.add_transition(source="stalking_inside", trigger="next", dest="stalking_below",
+
+        # from stalking_inside
+        self.machine.add_transition("next", "stalking_inside", "stalking_below",
                                     conditions=["is_candle_close_below_VAL"])
-        self.machine.add_transition(source="stalking_inside", trigger="next", dest="stalking_above",
+        self.machine.add_transition("next", "stalking_inside", "stalking_above",
                                     conditions=["is_candle_close_above VAH"])
 
-        # Value area entry management
-        self.machine.add_transition(source="value_buy", trigger="order_filled", dest="value_buy_hold",
+        # from value_buy
+        self.machine.add_transition("next", "value_buy", "stalking_above",
+                                    conditions=["is_candle_close_above_VAH"],
+                                    before="cancel_entry_order")
+
+        # from value_sell
+        self.machine.add_transition("next", "value_sell", "stalking_below",
+                                    conditions=["is_candle_close_below_VAL"],
+                                    before="cancel_entry_order")
+
+        # ----- trigger: order_filled -----
+        # from value_buy
+        self.machine.add_transition("order_filled", "value_buy", "value_buy_hold",
                                     after="update_closing_orders")
-        self.machine.add_transition(source="value_buy", trigger="order_cancelled", dest="stalking_below",
+        # from value_sell
+        self.machine.add_transition("order_filled", "value_sell", "value_sell_hold",
+                                    after="update_closing_orders")
+
+        # from value_buy_hold
+        self.machine.add_transition("order_filled", "value_buy_hold", "stalking_above",
+                                    conditions=["is_candle_close_above_VAH"],
+                                    before="cancel_exit_orders")
+        self.machine.add_transition("order_filled", "value_buy_hold", "stalking_inside",
+                                    conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
+                                    before="cancel_exit_orders")
+        self.machine.add_transition("order_filled", "value_buy_hold", "stalking_below",
+                                    conditions=["is_candle_close_below_VAL"],
+                                    before="cancel_exit_orders")
+
+        # from value_sell_hold
+        self.machine.add_transition("order_filled", "value_sell_hold", "stalking_above",
+                                    conditions=["is_candle_close_above_VAH"],
+                                    before="cancel_exit_orders")
+        self.machine.add_transition("order_filled", "value_sell_hold", "stalking_inside",
+                                    conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
+                                    before="cancel_exit_orders")
+        self.machine.add_transition("order_filled", "value_sell_hold", "stalking_below",
+                                    conditions=["is_candle_close_below_VAL"],
+                                    before="cancel_exit_orders")
+
+        # ----- trigger: order_cancelled -----
+        # from value_buy
+        self.machine.add_transition("order_cancelled", "value_buy", "stalking_below",
                                     conditions=["is_candle_close_below_VAL"])
-        self.machine.add_transition(source="value_buy", trigger="order_cancelled", dest="value_buy",
+        self.machine.add_transition("order_cancelled", "value_buy", "value_buy",
                                     conditions=["is_candle_close_above_VAL", "is_candle_close_below_VAH"],
                                     after="update_entry_order")
-        self.machine.add_transition(source="value_buy", trigger="next", dest="stalking_above",
-                                    conditions=["is_candle_close_above_VAH"],
-                                    before="cancel_entry_order")
 
-        self.machine.add_transition(source="value_sell", trigger="order_filled", dest="value_sell_hold",
-                                    after="update_closing_orders")
-        self.machine.add_transition(source="value_sell", trigger="order_cancelled", dest="stalking_above",
+        # from value_sell
+        self.machine.add_transition("order_cancelled", "value_sell", "stalking_above",
                                     conditions=["is_candle_close_above_VAH"])
-        self.machine.add_transition(source="value_sell", trigger="order_cancelled", dest="value_sell",
+        self.machine.add_transition("order_cancelled", "value_sell", "value_sell",
                                     conditions=["is_candle_close_above_VAL", "is_candle_close_below_VAH"],
                                     after="update_entry_order")
-        self.machine.add_transition(source="value_sell", trigger="next", dest="stalking_below",
-                                    conditions=["is_candle_close_below_VAL"],
-                                    before="cancel_entry_order")
 
-        # Position management
-        self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_above",
-                                    conditions=["is_candle_close_above_VAH"],
-                                    before="cancel_exit_orders")
-        self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_inside",
-                                    conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
-                                    before="cancel_exit_orders")
-        self.machine.add_transition(source="value_buy_hold", trigger="order_filled", dest="stalking_below",
-                                    conditions=["is_candle_close_below_VAL"],
-                                    before="cancel_exit_orders")
-        self.machine.add_transition(source="value_buy_hold", trigger="order_cancelled", dest="value_buy_hold",
+        # from value_buy_hold
+        self.machine.add_transition("order_cancelled", "value_buy_hold", "value_buy_hold",
                                     after="update_entry_order")
 
-        self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_above",
-                                    conditions=["is_candle_close_above_VAH"],
-                                    before="cancel_exit_orders")
-        self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_inside",
-                                    conditions=["is_candle_close_below_VAH", "is_candle_close_above_VAL"],
-                                    before="cancel_exit_orders")
-        self.machine.add_transition(source="value_sell_hold", trigger="order_filled", dest="stalking_below",
-                                    conditions=["is_candle_close_below_VAL"],
-                                    before="cancel_exit_orders")
-        self.machine.add_transition(source="value_sell_hold", trigger="order_cancelled", dest="value_sell_hold",
+        # from value_sell_hold
+        self.machine.add_transition("order_cancelled", "value_sell_hold", "value_sell_hold",
                                     after="update_entry_order")
 
         # Initialize state variables
